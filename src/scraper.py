@@ -4,7 +4,7 @@ import re
 import os
 from pathlib import Path
 from html_to_markdown import convert_to_markdown
-from . import config
+from .config import *
 
 def create_slug(article_id, title):
     title_slug = re.sub(r'[^\w\s-]', '', title.lower())
