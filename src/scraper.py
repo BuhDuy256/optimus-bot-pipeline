@@ -12,25 +12,36 @@ def create_slug(article_id, title):
     return f"{article_id}-{title_slug}"
 
 def scraper():
-    url = f"https://{config.RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
-    headers = {
-        "Content-Type": "application/json",
-    }
-    
-    response = requests.request(
-        "GET",
-        url,
-        headers=headers
-    )
-    data = response.json()
-    
     raw_data_dir = Path(__file__).parent.parent / "data" / "raw"
     raw_data_dir.mkdir(parents=True, exist_ok=True)
     
     markdown_dir = Path(__file__).parent.parent / "data" / "markdown"
     markdown_dir.mkdir(parents=True, exist_ok=True)
     
-    for article in data["articles"]:
+    url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles?per_page=100"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept-Encoding": "gzip, deflate"
+    }
+    
+    all_articles = []
+    page_count = 0
+    
+    while url:
+        page_count += 1
+        print(f"Fetching page {page_count}...")
+        
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        
+        all_articles.extend(data["articles"])
+        
+        url = data.get("next_page")
+    
+    print(f"Total articles fetched: {len(all_articles)}")
+    print("Processing articles...")
+    
+    for article in all_articles:
         article_id = article["id"]
         article_title = article["title"]
         article_body = article["body"]
