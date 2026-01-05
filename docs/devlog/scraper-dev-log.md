@@ -2,4 +2,6 @@
 
 ![alt text](image.png)
 
-##### 2. 
+##### 2. Convert each article to clean Markdown.
+
+![alt text](image-1.png)
