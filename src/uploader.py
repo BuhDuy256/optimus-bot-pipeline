@@ -28,7 +28,8 @@ def upload_added_articles(client, vector_store_id, added_articles):
     if not added_articles:
         return {}
     
-    print(f"Uploading {len(added_articles)} added articles...")
+    total_chunks = sum(len(chunks) for chunks in added_articles.values())
+    print(f"Uploading {len(added_articles)} added articles ({total_chunks} chunks)...")
     
     article_file_mapping = {}
     file_ids = []
@@ -56,7 +57,7 @@ def upload_added_articles(client, vector_store_id, added_articles):
             
             try:
                 print(f"Adding batch {batch_num}/{total_batches} ({len(batch)} files) to vector store...")
-                client.vector_stores.file_batches.create_and_poll(
+                batch_result = client.vector_stores.file_batches.create_and_poll(
                     vector_store_id=vector_store_id,
                     file_ids=batch,
                     chunking_strategy={
@@ -67,6 +68,7 @@ def upload_added_articles(client, vector_store_id, added_articles):
                         }
                     }
                 )
+                print(f"Batch {batch_num} embedded: {batch_result.file_counts.completed} files")
             except Exception as e:
                 print(f"Failed to add batch {batch_num} to vector store: {e}")
     
@@ -81,14 +83,16 @@ def upload_added_articles(client, vector_store_id, added_articles):
         if article_file_ids:
             article_file_mapping[article_id] = article_file_ids
     
-    print(f"Added {len(article_file_mapping)} articles successfully")
+    total_files = sum(len(ids) for ids in article_file_mapping.values())
+    print(f"Added {len(article_file_mapping)} articles successfully ({total_files} files embedded)")
     return article_file_mapping
 
 def upload_updated_articles(client, vector_store_id, updated_articles, hash_store):
     if not updated_articles:
         return {}
     
-    print(f"Uploading {len(updated_articles)} updated articles...")
+    total_chunks = sum(len(chunks) for chunks in updated_articles.values())
+    print(f"Uploading {len(updated_articles)} updated articles ({total_chunks} chunks)...")
     
     for article_id, chunk_files in updated_articles.items():
         article_id_str = str(article_id)
@@ -156,4 +160,5 @@ def uploader(changed_articles):
     hash_store["last_fetching_time"] = int(time.time())
     save_hash_store(hash_store, data_dir)
     
-    print(f"Upload complete: {len(added_mapping)} added, {len(updated_mapping)} updated")
+    total_files = sum(len(ids) for ids in article_file_mapping.values())
+    print(f"Upload complete: {len(added_mapping)} added, {len(updated_mapping)} updated ({total_files} files embedded)")
