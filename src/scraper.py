@@ -5,9 +5,9 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-import hashlib
 from dotenv import load_dotenv
-from . import config
+from .config import *
+from .helper import *
 from markdownify import markdownify
 import tiktoken
 
@@ -70,30 +70,10 @@ def chunk_text(text, max_tokens=1000, overlap_pct=0.15):
         
     return chunks
 
-def calculate_content_hash(content: str) -> str:
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
-
-def load_hash_store(data_dir):
-    hash_store_path = data_dir / "hash_store.json"
-    
-    if hash_store_path.exists():
-        with open(hash_store_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    
-    return {
-        "last_fetching_time": None,
-        "articles": {}
-    }
-    
-def save_hash_store(hash_store, data_dir):
-    hash_store_path = data_dir / "hash_store.json"
-    with open(hash_store_path, 'w', encoding='utf-8') as f:
-        json.dump(hash_store, f, ensure_ascii=False, indent=2)
-
 def fetch_articles(max_articles=None):
     env = os.getenv("ENV").lower()
     
-    url = f"https://{config.RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
+    url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
     
     headers = {
         "Content-Type": "application/json",
@@ -152,7 +132,7 @@ def fetch_updated_articles(start_time, max_articles=None):
     # API is authorized
     # url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/incremental/articles?start_time={start_time}"
     
-    url = f"https://{config.RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
+    url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
     
     headers = {
         "Content-Type": "application/json",
@@ -270,7 +250,7 @@ def scraper(max_articles=None):
     total_in_store = len(existing_article_ids)
     
     if last_fetching_time is None:
-        all_articles = fetch_articles(config.MAX_ARTICLES_IN_DEVELOPMENT)
+        all_articles = fetch_articles(MAX_ARTICLES_IN_DEVELOPMENT)
         end_time = int(time.time())
         api_skipped_count = 0
     else:
