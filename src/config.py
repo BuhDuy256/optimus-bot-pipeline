@@ -1,1 +1,2 @@
 RAW_DATA_BASE_URL="support.optisigns.com"
+MAX_ARTICLES_IN_DEVELOPMENT=50

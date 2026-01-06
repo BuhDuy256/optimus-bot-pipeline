@@ -20,11 +20,39 @@
 
 ![alt text](image-3.png)
 
-=> Problems:
+##### 4. New solution for Scraper and uploader
 
-- The "Article URL:" in the response is null => The AI doesn't have data about it => Add "Article URL: {html_url}" to .md files.
-- Initial upload time for .md files to storage is high => Use batching to fetch all data initially and update incrementally thereafter to optimize the schedule.
-- Chunking strategy is inadequate => The AI needs complete data to answer correctly => Divide chunks based on headings instead of byte size. => To prevent loss of context when splitting, add the title to the beginning of each heading's content.
-- Delta detection => Use Hashing + API /api/v2/help_center/incremental/articles.json?start_time={start_time} as a 2-layer approach => During the initial crawl, hash all file body values and store the hashes in manifest.json. From the second run onwards, use two layers for change detection:
-  - Layer 1: Call API /api/v2/help_center/incremental/articles.json?start_time={last_fetching_time} to retrieve changed posts.
-  - Layer 2: Since metadata updates can trigger "updated_at" changes, hash the file body to detect actual content changes and re-upload to OpenAI storage only if necessary.
+###### => Problem 1: Context Retention and Cost Management
+
+- **Context Preservation**: Splitting articles into multiple chunks can cause the AI to lose global context. To mitigate this, each chunk must include the article title, category, and overlapping content from adjacent segments.
+- **Token Optimization**: To manage OpenAI Assistant API costs, we must strictly control the number of tokens per chunk.
+
+**Solution**: Split each original `.md` file into smaller fragments using this structure:
+
+```text
+# [Title]
+## Category: [Breadcrumb]
+Source: [Article URL]
+***
+[Main Content of Chunk]
+***
+[Overlap from previous/next chunk]
+***
+Article URL: [Article URL]
+```
+
+**Cost Estimation and Configuration**:
+
+- **Overlap**: Set to 0 in the Vector Store configuration, as overlap is now handled manually within the content structure.
+- **Predictable Costs**: By fixing the chunk size (e.g., 1,000 tokens) and limiting the number of retrieved files (e.g., 5), we can cap the cost per query.
+- _Example_: 5 files × 1,000 tokens = 5,000 tokens. At $0.01/1k tokens, the cost is approximately $0.05 per prompt.
+
+###### => Problem 2: Precise Change Detection
+
+- To efficiently update files, we need to accurately detect content changes. Two primary methods exist: monitoring the `updated_at` field or using content hashing. Both have limitations:
+  - **`updated_at` field**: The Zendesk API (`GET /api/v2/help_center/incremental/articles?start_time={start_time}`) tracks metadata changes. However, as noted in the documentation, metadata updates do not always reflect changes in the actual body content.
+  - **Hashing**: Hashing every file to detect changes is computationally expensive and time-consuming, especially for large datasets.
+- **Solution**: A two-layered approach.
+  1. **Layer 1**: Use the Zendesk API to identify articles with any changes (metadata or content) since the last sync.
+  2. **Layer 2**: Perform a hash comparison on the body content of those specific articles to confirm if a re-upload to the vector store is actually required.
+```
