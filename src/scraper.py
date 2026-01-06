@@ -10,6 +10,7 @@ from .config import *
 from .helper import *
 from markdownify import markdownify
 import tiktoken
+from bs4 import BeautifulSoup
 
 load_dotenv()
 
@@ -19,6 +20,24 @@ RAW_DATA_BASE_URL = os.getenv("RAW_DATA_BASE_URL")
 
 def count_tokens(text):
     return len(tokenizer.encode(text))
+
+def clean_html(html_content):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    unwanted_selectors = [
+        'nav', 'header', 'footer',
+        '[class*="nav"]', '[class*="menu"]',
+        '[class*="sidebar"]', '[class*="ad"]',
+        '[id*="nav"]', '[id*="menu"]',
+        '[id*="sidebar"]', '[id*="ad"]',
+        'script', 'style', 'iframe'
+    ]
+    
+    for selector in unwanted_selectors:
+        for element in soup.select(selector):
+            element.decompose()
+    
+    return str(soup)
 
 def create_slug(article_id, title):
     title_slug = re.sub(r'[^\w\s-]', '', title.lower())
@@ -35,41 +54,147 @@ def character_split_with_overlap(text, max_size, overlap):
         if i + max_size >= len(text): break
     return chunks
 
-def chunk_text(text, max_tokens=1000, overlap_pct=0.15):
-    tokens = tokenizer.encode(text)
-    total_tokens = len(tokens)
-    overlap_size = int(max_tokens * overlap_pct)
-    chunks = []
+def find_safe_split_point(text, max_pos):
+    last_para = text.rfind('\n\n', 0, max_pos)
+    if last_para > max_pos * 0.5:
+        return last_para + 2
     
-    start = 0
-    while start < len(tokens):
-        end = min(start + max_tokens, total_tokens)
-        chunk_tokens = tokens[start:end]
-        chunk_text = tokenizer.decode(chunk_tokens)
+    lines = text[:max_pos].split('\n')
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i].strip()
+        if re.match(r'^[\*\-\+\d]+\.?\s', line):
+            if i < len(lines) - 1:
+                next_line = lines[i + 1].strip()
+                if not next_line or not re.match(r'^[\*\-\+\d]+\.?\s|^\s+', next_line):
+                    pos = sum(len(l) + 1 for l in lines[:i+1])
+                    if pos > max_pos * 0.5:
+                        return pos
+    
+    sentence_end = max(
+        text.rfind('. ', 0, max_pos),
+        text.rfind('.\n', 0, max_pos),
+        text.rfind('!\n', 0, max_pos),
+        text.rfind('?\n', 0, max_pos)
+    )
+    if sentence_end > max_pos * 0.5:
+        return sentence_end + 2
+    
+    last_newline = text.rfind('\n', 0, max_pos)
+    if last_newline > max_pos * 0.5:
+        return last_newline + 1
+    
+    return max_pos
+
+def is_heading(line):
+    return bool(re.match(r'^#{1,6}\s', line.strip()))
+
+def find_backward_safe_split(text, target_pos):
+    if target_pos >= len(text):
+        return len(text)
+    
+    search_start = max(0, int(target_pos * 0.5))
+    substring = text[search_start:target_pos]
+    
+    if is_in_code_block(text, target_pos):
+        code_start = text.rfind('```', 0, target_pos)
+        if code_start > search_start:
+            return code_start
+    
+    lines = text[:target_pos].split('\n')
+    for i in range(len(lines) - 1, max(0, len(lines) - 20), -1):
+        if i >= len(lines):
+            continue
+        line = lines[i].strip()
         
-        is_last_chunk = (end == total_tokens)
+        if is_heading(line):
+            return sum(len(l) + 1 for l in lines[:i])
+    
+    next_line_start = text.rfind('\n', search_start, target_pos)
+    if next_line_start != -1 and next_line_start > search_start:
+        potential_line = text[next_line_start:target_pos].strip()
+        if '](' in potential_line or '![' in potential_line:
+            link_start = text.rfind('[', search_start, next_line_start)
+            if link_start > search_start:
+                return link_start
+    
+    para_break = text.rfind('\n\n', search_start, target_pos)
+    if para_break > search_start:
+        return para_break + 2
+    
+    for i in range(len(lines) - 1, max(0, len(lines) - 10), -1):
+        if i >= len(lines):
+            continue
+        line = lines[i].strip()
+        if re.match(r'^[\*\-\+\d]+\.?\s', line):
+            if i < len(lines) - 1:
+                next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                if not next_line or not re.match(r'^[\*\-\+\d]+\.?\s|^\s+', next_line):
+                    pos = sum(len(l) + 1 for l in lines[:i+1])
+                    if pos > search_start:
+                        return pos
+    
+    sentence_end = max(
+        text.rfind('. ', search_start, target_pos),
+        text.rfind('.\n', search_start, target_pos),
+        text.rfind('!\n', search_start, target_pos),
+        text.rfind('?\n', search_start, target_pos)
+    )
+    if sentence_end > search_start:
+        return sentence_end + 2
+    
+    last_newline = text.rfind('\n', search_start, target_pos)
+    if last_newline > search_start:
+        return last_newline + 1
+    
+    return target_pos
+
+def is_in_code_block(text, position):
+    before_text = text[:position]
+    code_fence_count = before_text.count('```')
+    return code_fence_count % 2 == 1
+
+def chunk_text(text, max_tokens=1000, overlap_pct=0.15):
+    if not text or not text.strip():
+        return []
+    
+    total_tokens = count_tokens(text)
+    if total_tokens <= max_tokens:
+        return [text]
+    
+    chunks = []
+    overlap_tokens = int(max_tokens * overlap_pct)
+    chars_per_token = len(text) / total_tokens
+    target_chars = int(max_tokens * chars_per_token * 0.9)
+    
+    pos = 0
+    while pos < len(text):
+        end_pos = min(pos + target_chars, len(text))
         
-        if end < len(tokens):
-            last_break = chunk_text.rfind('\n\n')
-            if last_break == -1:
-                last_break = chunk_text.rfind('. ')
-            
-            if last_break != -1:
-                potential_text = chunk_text[:last_break + 2]
-                potential_tokens_count = len(tokenizer.encode(potential_text))
-                
-                if potential_tokens_count > (max_tokens * 0.7):
-                    chunk_text = potential_text
+        if end_pos < len(text):
+            end_pos = find_backward_safe_split(text, end_pos)
         
-        chunks.append(chunk_text.strip())
+        chunk = text[pos:end_pos].strip()
         
-        if is_last_chunk:
+        chunk_tokens = count_tokens(chunk)
+        if chunk_tokens > max_tokens * 1.3:
+            while count_tokens(chunk) > max_tokens and len(chunk) > 100:
+                last_space = chunk.rfind(' ', 0, int(len(chunk) * 0.9))
+                if last_space > len(chunk) * 0.5:
+                    chunk = chunk[:last_space]
+                else:
+                    tokens = tokenizer.encode(chunk)
+                    chunk = tokenizer.decode(tokens[:max_tokens])
+                    break
+        
+        if chunk:
+            chunks.append(chunk)
+        
+        if end_pos >= len(text):
             break
         
-        actual_chunk_tokens = len(tokenizer.encode(chunk_text))
-        effective_overlap = min(overlap_size, int(actual_chunk_tokens * 0.3))
-        start += max(1, actual_chunk_tokens - effective_overlap)
-        
+        overlap_chars = int(overlap_tokens * chars_per_token)
+        pos = max(pos + 1, end_pos - overlap_chars)
+    
     return chunks
 
 def fetch_articles(max_articles=None):
@@ -190,7 +315,10 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
     updated_at = article.get("updated_at", "")
     
     slug = create_slug(article_id, article_title)
-    markdown_content = markdownify(article_body, heading_style="ATX")
+    
+    cleaned_html = clean_html(article_body)
+    markdown_content = markdownify(cleaned_html, heading_style="ATX")
+    
     content_hash = calculate_content_hash(markdown_content)
     
     article_id_str = str(article_id)
@@ -221,7 +349,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         chunk_with_metadata += f"\n\n---\n\nArticle URL: {article_url}"
         
         chunk_token_count = count_tokens(chunk_with_metadata)
-        # print(f"  Chunk {idx}: {chunk_token_count} tokens")
+        print(f"  Chunk {idx}: {chunk_token_count} tokens")
         
         chunk_filename = f"{slug}-part{idx}.md"
         chunk_filepath = markdown_dir / chunk_filename

@@ -62,7 +62,7 @@ def upload_added_articles(client, vector_store_id, added_articles):
                     chunking_strategy={
                         "type": "static",
                         "static": {
-                            "max_chunk_size_tokens": MAX_CHUNK_TOKENS + 200,
+                            "max_chunk_size_tokens": MAX_CHUNK_TOKENS,
                             "chunk_overlap_tokens": 0
                         }
                     }
