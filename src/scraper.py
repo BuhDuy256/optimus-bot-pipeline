@@ -71,7 +71,7 @@ def chunk_text(text, max_tokens=1000, overlap_pct=0.15):
     return chunks
 
 def fetch_articles(max_articles=None):
-    env = os.getenv("ENV").lower()
+    env = os.getenv("ENV")
     
     url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
     
@@ -127,7 +127,7 @@ def fetch_updated_articles(start_time, max_articles=None):
                 
         return updated_articles
     
-    env = os.getenv("ENV").lower()
+    env = os.getenv("ENV")
     
     # API is authorized
     # url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/incremental/articles?start_time={start_time}"
@@ -197,7 +197,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
     if article_id_str in hash_store["articles"]:
         stored_hash = hash_store["articles"][article_id_str].get("hash", "")
         if stored_hash == content_hash:
-            return "SKIPPED"
+            return "HASH_SKIPPED", []
         else:
             action = "UPDATED"
             delete_old_chunks(article_id, slug, markdown_dir)
@@ -208,6 +208,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         json.dump(article, f, ensure_ascii=False, indent=2)
 
     chunks = chunk_text(markdown_content)
+    chunk_paths = []
     
     for idx, chunk_content in enumerate(chunks, start=1):
         chunk_with_metadata = f"# {article_title}\n\n"
@@ -224,6 +225,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         chunk_filepath = markdown_dir / chunk_filename
         with open(chunk_filepath, 'w', encoding='utf-8') as f:
             f.write(chunk_with_metadata)
+        chunk_paths.append(chunk_filepath)
     
     hash_store["articles"][article_id_str] = {
         "hash": content_hash,
@@ -232,7 +234,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         "num_chunks": len(chunks)
     }
     
-    return action
+    return action, chunk_paths
 
 def scraper(max_articles=None):
     base_dir = Path(__file__).parent.parent
@@ -246,37 +248,46 @@ def scraper(max_articles=None):
     
     hash_store = load_hash_store(data_dir)
     last_fetching_time = hash_store.get("last_fetching_time")
-    existing_article_ids = set(hash_store["articles"].keys())
-    total_in_store = len(existing_article_ids)
     
+    stats = {"ADDED": 0, "UPDATED": 0, "API_SKIPPED": 0, "HASH_SKIPPED": 0}
+
     if last_fetching_time is None:
         all_articles = fetch_articles(MAX_ARTICLES_IN_DEVELOPMENT)
         end_time = int(time.time())
-        api_skipped_count = 0
+        stats["API_SKIPPED"] = 0
     else:
+        existing_article_ids = set(hash_store["articles"].keys())
+        total_in_store = len(existing_article_ids)
         all_articles, end_time = fetch_updated_articles(last_fetching_time)
-        api_skipped_count = total_in_store - len(all_articles)
+        stats["API_SKIPPED"] = total_in_store - len(all_articles)
    
-    stats = {"ADDED": 0, "UPDATED": 0, "SKIPPED": 0, "HASH_SKIPPED": 0}
+    changed_articles = {"added": {}, "updated": {}}
     
     for article in all_articles:
         try:
-            action = process_article(article, hash_store, raw_data_dir, markdown_dir)
-            if action == "SKIPPED":
+            action, chunk_paths = process_article(article, hash_store, raw_data_dir, markdown_dir)
+            if action == "HASH_SKIPPED":
                 stats["HASH_SKIPPED"] += 1
             else:
                 stats[action] += 1
+                article_id = article["id"]
+                if action == "ADDED":
+                    changed_articles["added"][article_id] = chunk_paths
+                elif action == "UPDATED":
+                    changed_articles["updated"][article_id] = chunk_paths
         except Exception as e:
             print(f"Error processing article {article.get('id', 'unknown')}: {e}")
             
     hash_store["last_fetching_time"] = end_time
     save_hash_store(hash_store, data_dir)
     
-    total_skipped = api_skipped_count + stats["HASH_SKIPPED"]
+    total_skipped = stats["API_SKIPPED"] + stats["HASH_SKIPPED"]
     
     print(f"[ADDED]:   {stats['ADDED']} article(s)")
     print(f"[UPDATED]: {stats['UPDATED']} article(s)")
     print(f"[SKIPPED]: {total_skipped} (Total unchanged)")
-    print(f"   |-- From API filter: {api_skipped_count}")
+    print(f"   |-- From API filter: {stats["API_SKIPPED"]}")
     print(f"   |-- From Hash match: {stats['HASH_SKIPPED']}")
     print(f"Next start_time: {end_time}")
+    
+    return changed_articles # Returns {"added": {article_id: [chunk_paths]}, "updated": {article_id: [chunk_paths]}}

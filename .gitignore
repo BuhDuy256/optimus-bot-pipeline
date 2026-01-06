@@ -24,7 +24,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+8
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -208,3 +208,4 @@ __marimo__/
 
 # Personal Folder
 /personal
+/.vscode
