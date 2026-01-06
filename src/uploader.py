@@ -110,12 +110,9 @@ def uploader(changed_articles):
         return
     
     api_key = os.getenv("OPENAI_API_KEY")
-    vector_store_id = os.getenv("VECTOR_STORE_ID")
     
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment variables")
-    if not vector_store_id:
-        raise ValueError("VECTOR_STORE_ID not found in environment variables")
      
     base_dir = Path(__file__).parent.parent
     data_dir = base_dir / "data"
@@ -140,13 +137,13 @@ def uploader(changed_articles):
     
     added_mapping = upload_added_articles(
         client,
-        vector_store_id,
+        VECTOR_STORE_ID,
         added_articles
     )
     
     updated_mapping = upload_updated_articles(
         client,
-        vector_store_id,
+        VECTOR_STORE_ID,
         updated_articles,
         hash_store
     )

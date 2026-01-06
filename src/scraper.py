@@ -16,8 +16,6 @@ load_dotenv()
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 
-RAW_DATA_BASE_URL = os.getenv("RAW_DATA_BASE_URL")
-
 def count_tokens(text):
     return len(tokenizer.encode(text))
 
@@ -198,8 +196,6 @@ def chunk_text(text, max_tokens=1000, overlap_pct=0.15):
     return chunks
 
 def fetch_articles(max_articles=None):
-    env = os.getenv("ENV")
-    
     url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/en-us/articles"
     
     headers = {
@@ -207,7 +203,7 @@ def fetch_articles(max_articles=None):
         "Accept-Encoding": "gzip, deflate"
     }
     
-    if env == "development":
+    if ENV == "development":
         if max_articles:
             url += f"?per_page={max_articles}"
             
@@ -254,8 +250,6 @@ def fetch_updated_articles(start_time, max_articles=None):
                 
         return updated_articles
     
-    env = os.getenv("ENV")
-    
     # API is authorized
     # url = f"https://{RAW_DATA_BASE_URL}/api/v2/help_center/incremental/articles?start_time={start_time}"
     
@@ -268,7 +262,7 @@ def fetch_updated_articles(start_time, max_articles=None):
     
     end_time = int(time.time())
     
-    if env == "development":
+    if ENV == "development":
         if max_articles:
             url += f"?per_page={max_articles}"
             
@@ -349,7 +343,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         chunk_with_metadata += f"\n\n---\n\nArticle URL: {article_url}"
         
         chunk_token_count = count_tokens(chunk_with_metadata)
-        print(f"  Chunk {idx}: {chunk_token_count} tokens")
+        # print(f"  Chunk {idx}: {chunk_token_count} tokens")
         
         chunk_filename = f"{slug}-part{idx}.md"
         chunk_filepath = markdown_dir / chunk_filename
@@ -416,7 +410,7 @@ def scraper(max_articles=None):
     print(f"[ADDED]:   {stats['ADDED']} article(s)")
     print(f"[UPDATED]: {stats['UPDATED']} article(s)")
     print(f"[SKIPPED]: {total_skipped} (Total unchanged)")
-    print(f"   |-- From API filter: {stats["API_SKIPPED"]}")
+    print(f"   |-- From API filter: {stats['API_SKIPPED']}")
     print(f"   |-- From Hash match: {stats['HASH_SKIPPED']}")
     print(f"Next start_time: {end_time}")
     
