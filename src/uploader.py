@@ -34,6 +34,7 @@ def upload_added_articles(client, vector_store_id, added_articles):
     file_ids = []
     chunk_to_file_id = {}
     
+    # Step 1: Upload all files to OpenAI storage
     for article_id, chunk_paths in added_articles.items():
         for chunk_path in chunk_paths:
             try:
@@ -44,15 +45,32 @@ def upload_added_articles(client, vector_store_id, added_articles):
             except Exception as e:
                 print(f"Failed to upload {chunk_path.name}: {e}")
     
+    # Step 2: Add files to vector store in batches (max 500 per batch)
     if file_ids:
-        try:
-            client.vector_stores.file_batches.create_and_poll(
-                vector_store_id=vector_store_id,
-                file_ids=file_ids
-            )
-        except Exception as e:
-            print(f"Failed to add batch to vector store: {e}")
+        total_files = len(file_ids)
+        
+        for i in range(0, total_files, BATCH_SIZE):
+            batch = file_ids[i:i + BATCH_SIZE]
+            batch_num = i // BATCH_SIZE + 1
+            total_batches = (total_files + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            try:
+                print(f"Adding batch {batch_num}/{total_batches} ({len(batch)} files) to vector store...")
+                client.vector_stores.file_batches.create_and_poll(
+                    vector_store_id=vector_store_id,
+                    file_ids=batch,
+                    chunking_strategy={
+                        "type": "static",
+                        "static": {
+                            "max_chunk_size_tokens": MAX_CHUNK_TOKENS + 200,
+                            "chunk_overlap_tokens": 0
+                        }
+                    }
+                )
+            except Exception as e:
+                print(f"Failed to add batch {batch_num} to vector store: {e}")
     
+    # Step 3: Map file IDs back to articles
     for article_id, chunk_paths in added_articles.items():
         article_file_ids = []
         for chunk_path in chunk_paths:
@@ -72,7 +90,6 @@ def upload_updated_articles(client, vector_store_id, updated_articles, hash_stor
     
     print(f"Uploading {len(updated_articles)} updated articles...")
     
-    # First, delete all old files
     for article_id, chunk_files in updated_articles.items():
         article_id_str = str(article_id)
         old_file_ids = hash_store.get("articles", {}).get(article_id_str, {}).get("openai_file_ids", [])

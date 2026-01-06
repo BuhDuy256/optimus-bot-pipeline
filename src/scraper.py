@@ -15,6 +15,8 @@ load_dotenv()
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 
+RAW_DATA_BASE_URL = os.getenv("RAW_DATA_BASE_URL")
+
 def count_tokens(text):
     return len(tokenizer.encode(text))
 
@@ -207,7 +209,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
     with open(raw_filepath, 'w', encoding='utf-8') as f:
         json.dump(article, f, ensure_ascii=False, indent=2)
 
-    chunks = chunk_text(markdown_content)
+    chunks = chunk_text(markdown_content, max_tokens=CHUNK_BODY_TOKENS, overlap_pct=OVERLAP_PERCENTAGE)
     chunk_paths = []
     
     for idx, chunk_content in enumerate(chunks, start=1):
@@ -219,7 +221,7 @@ def process_article(article, hash_store, raw_data_dir, markdown_dir):
         chunk_with_metadata += f"\n\n---\n\nArticle URL: {article_url}"
         
         chunk_token_count = count_tokens(chunk_with_metadata)
-        print(f"  Chunk {idx}: {chunk_token_count} tokens")
+        # print(f"  Chunk {idx}: {chunk_token_count} tokens")
         
         chunk_filename = f"{slug}-part{idx}.md"
         chunk_filepath = markdown_dir / chunk_filename
@@ -258,7 +260,7 @@ def scraper(max_articles=None):
     else:
         existing_article_ids = set(hash_store["articles"].keys())
         total_in_store = len(existing_article_ids)
-        all_articles, end_time = fetch_updated_articles(last_fetching_time)
+        all_articles, end_time = fetch_updated_articles(last_fetching_time, MAX_ARTICLES_IN_DEVELOPMENT)
         stats["API_SKIPPED"] = total_in_store - len(all_articles)
    
     changed_articles = {"added": {}, "updated": {}}
