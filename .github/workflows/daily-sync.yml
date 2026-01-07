@@ -1,0 +1,44 @@
+name: Daily Article Sync
+
+on:
+  schedule:
+    # Runs at 2:00 AM UTC every day
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync-articles:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download previous data artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: article-data
+          path: data/
+        continue-on-error: true # Don't fail if artifact doesn't exist (first run)
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t optimus-bot-pipeline .
+
+      - name: Run Docker container
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          docker run --rm \
+            -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+            -v "$(pwd)/data:/app/data" \
+            optimus-bot-pipeline
+
+      - name: Upload data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-data
+          path: data/
+          retention-days: 90 # Keep artifact for 90 days
